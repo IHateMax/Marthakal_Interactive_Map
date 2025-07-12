@@ -1,0 +1,410 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Interactive Map</title>
+  <style>
+    html, body {
+      margin: 0; padding: 0;
+      background: #111;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      overflow: hidden;
+    }
+    #map-frame {
+      border-radius: 16px;
+      overflow: hidden;
+      background: #222;
+      position: relative;
+      width: 90vmin;
+      aspect-ratio: 12660 / 10516;
+      box-shadow: 0 0 40px rgba(0, 0, 0, 0.6);
+    }
+    #map-container {
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      transform-origin: 0 0;
+      cursor: grab;
+    }
+    #map-image {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      user-select: none;
+      pointer-events: none;
+    }
+    .pin-block {
+      position: absolute;
+      z-index: 2;
+      transform-origin: bottom;
+    }
+    .map-pin {
+      width: 20px;
+      height: 20px;
+      cursor: pointer;
+    }
+    #preview-layer {
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      pointer-events: none;
+      z-index: 5;
+    }
+    .video-preview {
+      position: absolute;
+      width: 180px;
+      background: rgba(0,0,0,0.85);
+      border: 1px solid #555;
+      border-radius: 8px;
+      overflow: hidden;
+      display: none;
+      transform: translate(-50%, -110%);
+      text-align: center;
+      color: white;
+      font-family: sans-serif;
+      font-size: 13px;
+      pointer-events: auto;
+      cursor: pointer;
+    }
+    .video-preview img,
+    .video-preview video {
+      width: 100%;
+      object-fit: cover;
+    }
+    .video-popup {
+      display: none;
+      position: fixed;
+      top: 0; left: 0;
+      width: 100vw; height: 100vh;
+      background: rgba(0,0,0,0.8);
+      justify-content: center;
+      align-items: center;
+      z-index: 10;
+    }
+    .video-wrapper {
+      position: relative;
+      width: 80%;
+      max-width: 960px;
+    }
+    .video-wrapper iframe,
+    .video-wrapper video {
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      height: auto;
+      border-radius: 10px;
+      box-shadow: 0 0 30px rgba(0, 0, 0, 0.8);
+    }
+    .close-btn {
+      position: absolute;
+      top: -12px;
+      right: -12px;
+      background: #222;
+      color: white;
+      font-size: 24px;
+      padding: 4px 10px;
+      border-radius: 50%;
+      cursor: pointer;
+      box-shadow: 0 0 10px rgba(0,0,0,0.6);
+      z-index: 1;
+    }
+.map-pin[data-tag="Culture"] { filter: hue-rotate(0deg) brightness(1.2); }
+.map-pin[data-tag="Health"] { filter: hue-rotate(90deg) brightness(1.2); }
+.map-pin[data-tag="History"] { filter: hue-rotate(180deg) brightness(1.2); }
+.map-pin[data-tag="Nature"] { filter: hue-rotate(270deg) brightness(1.2); }
+  </style>
+</head>
+<body>
+  <div id="map-frame">
+    <div id="map-container">
+      <img id="map-image" alt="Map" />
+    </div>
+    <div id="preview-layer"></div>
+    <div class="video-popup" id="popup">
+      <div class="video-wrapper" id="video-wrapper">
+        <div class="close-btn" onclick="hideVideo()">✖</div>
+      </div>
+    </div>
+  </div>
+
+  <div id="tag-buttons" style="position: fixed; top: 16px; left: 16px; display: flex; gap: 8px; flex-wrap: wrap; background: rgba(0,0,0,0.7); padding: 10px; border-radius: 8px; font-family: sans-serif; z-index: 20; color: white;">
+    <span><strong>Tags:</strong></span>
+  </div>
+
+  <script>
+    const frame = document.getElementById("map-frame");
+    const container = document.getElementById("map-container");
+    const image = document.getElementById("map-image");
+    const previewLayer = document.getElementById("preview-layer");
+const tagColors = {
+  "Culture": "#ff5555",
+  "Health": "#55ff55",
+  "History": "#5599ff",
+  "Nature": "#ffaa00"
+};
+    const popup = document.getElementById("popup");
+    const videoWrapper = document.getElementById("video-wrapper");
+    const tagButtons = document.getElementById("tag-buttons");
+
+    image.src = `ipamap.png?t=${Date.now()}`;
+    let scale = 1;
+    const minScale = 1;
+    let translate = { x: 0, y: 0 };
+    let start = { x: 0, y: 0 };
+    let isDragging = false;
+    let activeTag = "all";
+
+    function updateTransform() {
+      container.style.transform = `translate(${translate.x}px, ${translate.y}px) scale(${scale})`;
+      [...document.querySelectorAll(".pin-block")].forEach(pin => {
+        pin.style.transform = `scale(${1 / scale})`;
+        pin.style.marginLeft = "-10px";
+        pin.style.marginTop = "-20px";
+      });
+    }
+
+    function clampTranslate() {
+      const frameRect = frame.getBoundingClientRect();
+      const imageWidth = frameRect.width * scale;
+      const imageHeight = frameRect.height * scale;
+      const maxX = 0;
+      const maxY = 0;
+      const minX = frameRect.width - imageWidth;
+      const minY = frameRect.height - imageHeight;
+      translate.x = Math.min(maxX, Math.max(minX, translate.x));
+      translate.y = Math.min(maxY, Math.max(minY, translate.y));
+    }
+
+    function hideVideo() {
+      popup.style.display = "none";
+      videoWrapper.innerHTML = `<div class="close-btn" onclick="hideVideo()">✖</div>`;
+    }
+
+    function isYouTube(url) {
+      return url.includes("youtube.com") || url.includes("youtu.be");
+    }
+
+    function getYouTubeID(url) {
+      const match = url.match(/(?:youtu\.be\/|v=)([^&]+)/);
+      return match ? match[1] : null;
+    }
+
+    function createTagButton(label, tagValue) {
+      const btn = document.createElement("button");
+      btn.textContent = label;
+      btn.dataset.tag = tagValue;
+      btn.style.cssText = `
+        background: #444;
+        color: white;
+        border: none;
+        padding: 5px 10px;
+        border-radius: 6px;
+        cursor: pointer;
+        transition: background 0.2s;
+      `;
+      btn.onclick = () => {
+        activeTag = tagValue;
+        updateVisiblePins();
+        updateTagButtonStyles();
+      };
+      tagButtons.appendChild(btn);
+    }
+
+    function updateVisiblePins() {
+      document.querySelectorAll(".pin-block").forEach(pin => {
+        const tag = pin.dataset.tag;
+        pin.style.display = activeTag === "all" || tag === activeTag ? "block" : "none";
+      });
+    }
+
+    function updateTagButtonStyles() {
+      [...tagButtons.querySelectorAll("button")].forEach(btn => {
+        const isActive = btn.dataset.tag === activeTag;
+        btn.style.background = isActive ? "#FFD700" : "#444";
+        btn.style.color = isActive ? "#000" : "#FFF";
+        btn.style.fontWeight = isActive ? "bold" : "normal";
+      });
+    }
+
+    
+const tintedIcons = {};
+
+async function loadTintedIcon(color) {
+  if (tintedIcons[color]) return tintedIcons[color];
+
+  const img = new Image();
+  img.src = "icon.png";
+  await img.decode();
+
+  const canvas = document.createElement("canvas");
+  canvas.width = img.width;
+  canvas.height = img.height;
+  const ctx = canvas.getContext("2d");
+
+  ctx.drawImage(img, 0, 0);
+  ctx.globalCompositeOperation = "source-in";
+  ctx.fillStyle = color;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  const tintedDataURL = canvas.toDataURL();
+  tintedIcons[color] = tintedDataURL;
+  return tintedDataURL;
+}
+
+
+    image.onload = () => {
+      frame.style.aspectRatio = `${image.naturalWidth} / ${image.naturalHeight}`;
+      loadJSON();
+    };
+
+    async function loadJSON() {
+      const response = await fetch("pins.json?t=" + Date.now());
+      const pins = await response.json();
+
+      pins.forEach(({ title, x, y, video, tag }) => {
+        const pin = document.createElement("div");
+        pin.className = "pin-block";
+        pin.style.left = `${x}%`;
+        pin.style.top = `${y}%`;
+        pin.dataset.tag = tag;
+
+        const img = document.createElement("img");
+        img.className = "map-pin";
+        loadTintedIcon(tagColors[tag]).then(url => { img.src = url; });
+        img.setAttribute("data-tag", tag);
+        pin.appendChild(img);
+        container.appendChild(pin);
+
+        const previewBox = document.createElement("div");
+        previewBox.className = "video-preview";
+        const label = document.createElement("div");
+        label.textContent = title;
+        previewBox.appendChild(label);
+
+        if (isYouTube(video)) {
+          const id = getYouTubeID(video);
+          const thumb = document.createElement("img");
+          thumb.src = `https://img.youtube.com/vi/${id}/mqdefault.jpg`;
+          previewBox.appendChild(thumb);
+        } else {
+          const vid = document.createElement("video");
+          vid.src = video;
+          vid.muted = true;
+          vid.loop = true;
+          vid.autoplay = true;
+          vid.playsInline = true;
+          vid.preload = "metadata";
+          previewBox.appendChild(vid);
+        }
+
+        previewLayer.appendChild(previewBox);
+
+        img.addEventListener("click", (e) => {
+          e.stopPropagation();
+          const rect = img.getBoundingClientRect();
+          const frameRect = frame.getBoundingClientRect();
+          previewBox.style.left = `${rect.left + rect.width / 2 - frameRect.left}px`;
+          previewBox.style.top = `${rect.top - frameRect.top}px`;
+          document.querySelectorAll(".video-preview").forEach(p => p.style.display = "none");
+          previewBox.style.display = "block";
+        });
+
+        previewBox.addEventListener("click", () => {
+          popup.style.display = "flex";
+          videoWrapper.innerHTML = `<div class="close-btn" onclick="hideVideo()">✖</div>` +
+            (isYouTube(video)
+              ? `<iframe width="100%" height="100%" src="https://www.youtube.com/embed/${getYouTubeID(video)}?autoplay=1" frameborder="0" allowfullscreen></iframe>`
+              : `<video src="${video}" controls autoplay></video>`);
+          previewBox.style.display = "none";
+        });
+      });
+
+      createTagButton("All", "all");
+      createTagButton("Culture", "Culture");
+      createTagButton("Health", "Health");
+      createTagButton("History", "History");
+      createTagButton("Nature", "Nature");
+      updateTagButtonStyles();
+      updateVisiblePins();
+      document.addEventListener("click", (e) => {
+        if (!e.target.closest(".map-pin")) {
+          document.querySelectorAll(".video-preview").forEach(p => p.style.display = "none");
+        }
+      });
+
+    }
+
+    frame.addEventListener("wheel", (e) => {
+      e.preventDefault();
+      const zoomFactor = 0.1;
+      const newScale = e.deltaY < 0 ? scale + zoomFactor : scale - zoomFactor;
+      const oldScale = scale;
+      scale = Math.max(minScale, Math.min(newScale, 4));
+      const rect = frame.getBoundingClientRect();
+      const cx = rect.width / 2;
+      const cy = rect.height / 2;
+      translate.x -= cx / oldScale - cx / scale;
+      translate.y -= cy / oldScale - cy / scale;
+      clampTranslate();
+      
+      // Also hide previews on scroll/zoom
+      document.querySelectorAll(".video-preview").forEach(p => p.style.display = "none");
+      updateTransform();
+    });
+
+    container.addEventListener("mousedown", (e) => {
+      isDragging = true;
+      container.style.cursor = "grabbing";
+      start = { x: e.clientX - translate.x, y: e.clientY - translate.y };
+    });
+
+    window.addEventListener("mousemove", (e) => {
+      if (!isDragging) return;
+      translate.x = e.clientX - start.x;
+      translate.y = e.clientY - start.y;
+      clampTranslate();
+      
+      // Also hide previews on scroll/zoom
+      document.querySelectorAll(".video-preview").forEach(p => p.style.display = "none");
+      updateTransform();
+    });
+
+    window.addEventListener("mouseup", () => {
+      isDragging = false;
+      container.style.cursor = "grab";
+    });
+
+    container.addEventListener("touchstart", (e) => {
+      if (e.touches.length !== 1) return;
+      isDragging = true;
+      start = {
+        x: e.touches[0].clientX - translate.x,
+        y: e.touches[0].clientY - translate.y,
+      };
+    });
+
+    container.addEventListener("touchmove", (e) => {
+      if (!isDragging || e.touches.length !== 1) return;
+      translate.x = e.touches[0].clientX - start.x;
+      translate.y = e.touches[0].clientY - start.y;
+      clampTranslate();
+      
+      // Also hide previews on scroll/zoom
+      document.querySelectorAll(".video-preview").forEach(p => p.style.display = "none");
+      updateTransform();
+    });
+
+    container.addEventListener("touchend", () => {
+      isDragging = false;
+    });
+
+    
+      // Also hide previews on scroll/zoom
+      document.querySelectorAll(".video-preview").forEach(p => p.style.display = "none");
+      updateTransform();
+  </script>
+</body>
+</html>
