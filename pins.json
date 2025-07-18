@@ -1,44 +1,9 @@
 [
   {
-    "title": "health video",
-    "x": 31.334197779467445,
-    "y": 67.88141590769541,
-    "video": "https://youtu.be/svU7i94tTpo",
-    "tag": "Health"
-  },
-  {
     "title": "Mo Ninjas",
-    "x": 32.80955479375155,
-    "y": 62.22729019839651,
+    "x": 27.603006843225746,
+    "y": 64.98968076013638,
     "video": "https://youtu.be/wzuoQi5dcco",
     "tag": "History"
-  },
-  {
-    "title": "Test",
-    "tag": "Culture",
-    "video": "",
-    "x": 42.26815814676926,
-    "y": 50.294615285601076
-  },
-  {
-    "title": "New video",
-    "tag": "History",
-    "video": "",
-    "x": 56.825015445690106,
-    "y": 65.43196351801521
-  },
-  {
-    "title": "",
-    "tag": "Health",
-    "video": "",
-    "x": 27.704940381365827,
-    "y": 62.96982464270516
-  },
-  {
-    "title": "new video",
-    "tag": "Culture",
-    "video": "",
-    "x": 38.923618505591115,
-    "y": 77.21889552126953
   }
 ]
